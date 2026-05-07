@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::{extract::State, routing::{get, post}, Json, Router};
 
 use crate::{
+    hot_path::score_request_with_fallback,
     scoring::{ScoringEngine, SharedScoringEngine},
     types::{ScoreRequest, ScoreResponse},
 };
@@ -26,14 +27,5 @@ async fn fraud_score(
     State(engine): State<SharedScoringEngine>,
     Json(request): Json<ScoreRequest>,
 ) -> Json<ScoreResponse> {
-    match engine.score(&request) {
-        Ok(response) => Json(response),
-        Err(error) => {
-            tracing::error!(error = %error, transaction_id = %request.id, "failed to score request");
-            Json(ScoreResponse {
-                approved: true,
-                fraud_score: 0.0,
-            })
-        }
-    }
+    Json(score_request_with_fallback(engine.as_ref(), &request))
 }
