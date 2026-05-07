@@ -44,6 +44,12 @@ pub struct LastTransaction {
     pub km_from_current: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScoreResponse {
+    pub approved: bool,
+    pub fraud_score: f64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Normalization {
     pub max_amount: f64,
