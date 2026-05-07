@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use crate::{
     resources::LoadedResources,
@@ -111,6 +111,39 @@ pub struct ScoringEngine {
 pub enum ScoringError {
     #[error(transparent)]
     Vectorize(#[from] VectorizeError),
+    #[error("failed to read evaluation dataset {path}: {source}")]
+    ReadEvaluationDataset {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to parse evaluation dataset {path}: {source}")]
+    ParseEvaluationDataset {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct EvaluationEntry {
+    pub request: ScoreRequest,
+    pub expected_approved: bool,
+    pub expected_fraud_score: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EvaluationSummary {
+    pub total: usize,
+    pub correct: usize,
+    pub true_positive: usize,
+    pub true_negative: usize,
+    pub false_positive: usize,
+    pub false_negative: usize,
+    pub accuracy: f64,
+    pub precision_fraud: f64,
+    pub recall_fraud: f64,
+    pub avg_score_error: f64,
 }
 
 impl ScoringEngine {
@@ -176,6 +209,104 @@ impl ScoringEngine {
 }
 
 pub type SharedScoringEngine = Arc<ScoringEngine>;
+
+pub fn evaluate_entries(
+    engine: &ScoringEngine,
+    entries: &[EvaluationEntry],
+) -> Result<EvaluationSummary, ScoringError> {
+    let mut correct = 0;
+    let mut true_positive = 0;
+    let mut true_negative = 0;
+    let mut false_positive = 0;
+    let mut false_negative = 0;
+    let mut total_score_error = 0.0;
+
+    for entry in entries {
+        let response = engine.score(&entry.request)?;
+        let predicted_fraud = !response.approved;
+        let expected_fraud = !entry.expected_approved;
+
+        if response.approved == entry.expected_approved {
+            correct += 1;
+        }
+
+        match (predicted_fraud, expected_fraud) {
+            (true, true) => true_positive += 1,
+            (false, false) => true_negative += 1,
+            (true, false) => false_positive += 1,
+            (false, true) => false_negative += 1,
+        }
+
+        total_score_error += (response.fraud_score - entry.expected_fraud_score).abs();
+    }
+
+    let total = entries.len();
+    let accuracy = ratio(correct, total);
+    let precision_fraud = ratio(true_positive, true_positive + false_positive);
+    let recall_fraud = ratio(true_positive, true_positive + false_negative);
+    let avg_score_error = if total == 0 {
+        0.0
+    } else {
+        total_score_error / total as f64
+    };
+
+    Ok(EvaluationSummary {
+        total,
+        correct,
+        true_positive,
+        true_negative,
+        false_positive,
+        false_negative,
+        accuracy,
+        precision_fraud,
+        recall_fraud,
+        avg_score_error,
+    })
+}
+
+fn ratio(numerator: usize, denominator: usize) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f64 / denominator as f64
+    }
+}
+
+pub fn load_evaluation_entries_from_file(path: &Path) -> Result<Vec<EvaluationEntry>, ScoringError> {
+    #[derive(serde::Deserialize)]
+    struct EvaluationDatasetFile {
+        entries: Vec<EvaluationEntryWire>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct EvaluationEntryWire {
+        request: ScoreRequest,
+        expected_approved: bool,
+        expected_fraud_score: f64,
+    }
+
+    let content = std::fs::read_to_string(path).map_err(|source| ScoringError::ReadEvaluationDataset {
+        path: path.display().to_string(),
+        source,
+    })?;
+
+    let dataset: EvaluationDatasetFile = serde_json::from_str(&content).map_err(|source| {
+        ScoringError::ParseEvaluationDataset {
+            path: path.display().to_string(),
+            source,
+        }
+    })?;
+
+    Ok(dataset
+        .entries
+        .into_iter()
+        .map(|entry| EvaluationEntry {
+            request: entry.request,
+            expected_approved: entry.expected_approved,
+            expected_fraud_score: entry.expected_fraud_score,
+        })
+        .collect())
+}
 
 fn bucket_key(vector: &[f64; 14]) -> BucketKey {
     let mut key = [0_i16; PARTITION_DIMS.len()];
