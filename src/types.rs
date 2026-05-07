@@ -50,7 +50,7 @@ pub struct ScoreResponse {
     pub fraud_score: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Normalization {
     pub max_amount: f64,
     pub max_installments: f64,
@@ -59,4 +59,17 @@ pub struct Normalization {
     pub max_km: f64,
     pub max_tx_count_24h: f64,
     pub max_merchant_avg_amount: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReferenceRecord {
+    pub vector: [f64; 14],
+    pub label: ReferenceLabel,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ReferenceLabel {
+    Fraud,
+    Legit,
 }
