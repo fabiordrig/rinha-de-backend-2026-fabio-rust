@@ -1,8 +1,8 @@
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 use crate::{
-    resources::LoadedResources,
-    types::{ReferenceLabel, ReferenceRecord, ScoreRequest, ScoreResponse},
+    resources::{LoadedReferenceSource, LoadedResources},
+    types::{ReferenceLabel, ScoreRequest, ScoreResponse},
     vectorize::{vectorize, VectorizeError},
 };
 
@@ -65,12 +65,12 @@ struct PartitionIndex {
 }
 
 impl PartitionIndex {
-    fn build(references: &[ReferenceRecord]) -> Self {
+    fn build(references: &LoadedReferenceSource) -> Self {
         let mut buckets: HashMap<BucketKey, Vec<usize>> = HashMap::new();
 
-        for (index, reference) in references.iter().enumerate() {
+        for index in 0..references.len() {
             buckets
-                .entry(bucket_key(&reference.vector))
+                .entry(bucket_key(references.vector(index).unwrap()))
                 .or_default()
                 .push(index);
         }
@@ -88,7 +88,14 @@ impl PartitionIndex {
         let mut candidates = Vec::new();
 
         for ring in 0..=PARTITION_MAX_RING {
-            collect_ring_candidates(&self.buckets, &center, ring, 0, &mut current, &mut candidates);
+            collect_ring_candidates(
+                &self.buckets,
+                &center,
+                ring,
+                0,
+                &mut current,
+                &mut candidates,
+            );
 
             if candidates.len() >= PARTITION_TARGET_CANDIDATES || candidates.len() >= K_NEIGHBORS {
                 return candidates;
@@ -102,8 +109,8 @@ impl PartitionIndex {
 #[derive(Debug)]
 pub struct ScoringEngine {
     normalization: crate::types::Normalization,
-    mcc_risk: std::collections::HashMap<String, f64>,
-    references: Vec<ReferenceRecord>,
+    mcc_risk: HashMap<String, f64>,
+    references: LoadedReferenceSource,
     partition_index: PartitionIndex,
 }
 
@@ -169,8 +176,8 @@ impl ScoringEngine {
                 max_tx_count_24h: 20.0,
                 max_merchant_avg_amount: 10_000.0,
             },
-            mcc_risk: std::collections::HashMap::new(),
-            references: Vec::new(),
+            mcc_risk: HashMap::new(),
+            references: LoadedReferenceSource::Owned(Vec::new()),
             partition_index: PartitionIndex::default(),
         }
     }
@@ -190,10 +197,9 @@ impl ScoringEngine {
         let mut top_k = TopK::<K_NEIGHBORS>::new();
 
         for reference_index in candidate_indices {
-            let reference = &self.references[reference_index];
             top_k.push(
-                squared_distance(&vector, &reference.vector),
-                reference.label == ReferenceLabel::Fraud,
+                squared_distance(&vector, self.references.vector(reference_index).unwrap()),
+                self.references.label(reference_index).unwrap() == ReferenceLabel::Fraud,
             );
         }
 
@@ -272,7 +278,9 @@ fn ratio(numerator: usize, denominator: usize) -> f64 {
     }
 }
 
-pub fn load_evaluation_entries_from_file(path: &Path) -> Result<Vec<EvaluationEntry>, ScoringError> {
+pub fn load_evaluation_entries_from_file(
+    path: &Path,
+) -> Result<Vec<EvaluationEntry>, ScoringError> {
     #[derive(serde::Deserialize)]
     struct EvaluationDatasetFile {
         entries: Vec<EvaluationEntryWire>,
@@ -311,7 +319,11 @@ pub fn load_evaluation_entries_from_file(path: &Path) -> Result<Vec<EvaluationEn
 fn bucket_key(vector: &[f64; 14]) -> BucketKey {
     let mut key = [0_i16; PARTITION_DIMS.len()];
 
-    for (slot, (&dimension, &width)) in PARTITION_DIMS.iter().zip(PARTITION_WIDTHS.iter()).enumerate() {
+    for (slot, (&dimension, &width)) in PARTITION_DIMS
+        .iter()
+        .zip(PARTITION_WIDTHS.iter())
+        .enumerate()
+    {
         let bucket = (vector[dimension] / width).floor();
         key[slot] = bucket.clamp(i16::MIN as f64, i16::MAX as f64) as i16;
     }
@@ -361,7 +373,7 @@ fn squared_distance(left: &[f64; 14], right: &[f64; 14]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{PartitionIndex, TopK};
+    use super::{LoadedReferenceSource, PartitionIndex, TopK};
     use crate::types::{ReferenceLabel, ReferenceRecord};
 
     #[test]
@@ -385,62 +397,39 @@ mod tests {
 
     #[test]
     fn partition_index_returns_local_candidates_without_scanning_distant_cluster() {
-        let references = vec![
+        let references = LoadedReferenceSource::Owned(vec![
             ReferenceRecord {
-                vector: [
-                    0.10, 0.20, 0.30, 0.15, 0.33, 0.12, 0.01, 0.02, 0.10, 0.0, 1.0, 0.0, 0.10,
-                    0.03,
-                ],
+                vector: [0.10, 0.20, 0.30, 0.15, 0.33, 0.12, 0.01, 0.02, 0.10, 0.0, 1.0, 0.0, 0.10, 0.03],
                 label: ReferenceLabel::Legit,
             },
             ReferenceRecord {
-                vector: [
-                    0.11, 0.20, 0.31, 0.16, 0.33, 0.11, 0.02, 0.03, 0.10, 0.0, 1.0, 0.0, 0.11,
-                    0.03,
-                ],
+                vector: [0.11, 0.20, 0.31, 0.16, 0.33, 0.11, 0.02, 0.03, 0.10, 0.0, 1.0, 0.0, 0.11, 0.03],
                 label: ReferenceLabel::Fraud,
             },
             ReferenceRecord {
-                vector: [
-                    0.12, 0.19, 0.29, 0.14, 0.33, 0.13, 0.01, 0.02, 0.10, 0.0, 1.0, 0.0, 0.09,
-                    0.03,
-                ],
+                vector: [0.12, 0.19, 0.29, 0.14, 0.33, 0.13, 0.01, 0.02, 0.10, 0.0, 1.0, 0.0, 0.09, 0.03],
                 label: ReferenceLabel::Legit,
             },
             ReferenceRecord {
-                vector: [
-                    0.13, 0.21, 0.30, 0.17, 0.33, 0.12, 0.03, 0.01, 0.10, 0.0, 1.0, 0.0, 0.10,
-                    0.03,
-                ],
+                vector: [0.13, 0.21, 0.30, 0.17, 0.33, 0.12, 0.03, 0.01, 0.10, 0.0, 1.0, 0.0, 0.10, 0.03],
                 label: ReferenceLabel::Fraud,
             },
             ReferenceRecord {
-                vector: [
-                    0.14, 0.20, 0.32, 0.18, 0.33, 0.12, 0.01, 0.02, 0.10, 0.0, 1.0, 0.0, 0.12,
-                    0.03,
-                ],
+                vector: [0.14, 0.20, 0.32, 0.18, 0.33, 0.12, 0.01, 0.02, 0.10, 0.0, 1.0, 0.0, 0.12, 0.03],
                 label: ReferenceLabel::Legit,
             },
             ReferenceRecord {
-                vector: [
-                    0.95, 0.80, 0.90, 0.90, 0.80, 0.95, 0.90, 0.90, 0.80, 1.0, 0.0, 1.0, 0.90,
-                    0.90,
-                ],
+                vector: [0.95, 0.80, 0.90, 0.90, 0.80, 0.95, 0.90, 0.90, 0.80, 1.0, 0.0, 1.0, 0.90, 0.90],
                 label: ReferenceLabel::Fraud,
             },
             ReferenceRecord {
-                vector: [
-                    0.96, 0.81, 0.91, 0.91, 0.81, 0.96, 0.91, 0.91, 0.81, 1.0, 0.0, 1.0, 0.91,
-                    0.91,
-                ],
+                vector: [0.96, 0.81, 0.91, 0.91, 0.81, 0.96, 0.91, 0.91, 0.81, 1.0, 0.0, 1.0, 0.91, 0.91],
                 label: ReferenceLabel::Fraud,
             },
-        ];
+        ]);
 
         let partition_index = PartitionIndex::build(&references);
-        let query = [
-            0.115, 0.20, 0.30, 0.16, 0.33, 0.12, 0.02, 0.02, 0.10, 0.0, 1.0, 0.0, 0.10, 0.03,
-        ];
+        let query = [0.115, 0.20, 0.30, 0.16, 0.33, 0.12, 0.02, 0.02, 0.10, 0.0, 1.0, 0.0, 0.10, 0.03];
 
         let candidate_indices = partition_index.candidate_indices(&query, references.len());
 

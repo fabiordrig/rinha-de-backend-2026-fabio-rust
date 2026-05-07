@@ -3,8 +3,8 @@ use std::{fs, io::Write, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
 use flate2::{write::GzEncoder, Compression};
 
 use rinha_de_backend_2026_fabio_rust::{
-    index::{build_index_from_resources_dir, load_index_file},
-    resources::load_resources_from_dir,
+    index::{build_index_from_resources_dir, load_index_file, load_index_file_mmap},
+    resources::{load_resources_from_dir, LoadedReferenceSource},
     types::ReferenceLabel,
 };
 
@@ -72,6 +72,51 @@ fn builds_and_loads_binary_index_roundtrip() {
 }
 
 #[test]
+fn loads_binary_index_via_mmap_roundtrip() {
+    let fixture_dir = temp_fixture_dir();
+    let output_path = fixture_dir.join("references.bin");
+
+    fs::write(
+        fixture_dir.join("normalization.json"),
+        r#"{
+          "max_amount": 10000,
+          "max_installments": 12,
+          "amount_vs_avg_ratio": 10,
+          "max_minutes": 1440,
+          "max_km": 1000,
+          "max_tx_count_24h": 20,
+          "max_merchant_avg_amount": 10000
+        }"#,
+    )
+    .unwrap();
+
+    fs::write(
+        fixture_dir.join("mcc_risk.json"),
+        r#"{
+          "5912": 0.2
+        }"#,
+    )
+    .unwrap();
+
+    write_gzip(
+        &fixture_dir.join("references.json.gz"),
+        r#"[
+          { "vector": [0.0385, 0.25, 0.05, 0.8696, 0.3333, 0.2257, 0.0189, 0.0137, 0.15, 0.0, 1.0, 0.0, 0.2, 0.0299], "label": "legit" },
+          { "vector": [0.9506, 0.8333, 1.0, 0.2174, 0.8333, -1.0, -1.0, 0.9523, 1.0, 0.0, 1.0, 1.0, 0.75, 0.0055], "label": "fraud" }
+        ]"#,
+    );
+
+    build_index_from_resources_dir(&fixture_dir, &output_path).unwrap();
+    let mapped = load_index_file_mmap(&output_path).unwrap();
+
+    assert_eq!(mapped.len(), 2);
+    assert_eq!(mapped.record(0).unwrap().label, ReferenceLabel::Legit);
+    assert_eq!(mapped.record(1).unwrap().label, ReferenceLabel::Fraud);
+    assert_eq!(mapped.record(0).unwrap().vector[0], 0.0385);
+    assert_eq!(mapped.record(1).unwrap().vector[5], -1.0);
+}
+
+#[test]
 fn loads_references_from_binary_index_when_available() {
     let fixture_dir = temp_fixture_dir();
     let output_path = fixture_dir.join("references.bin");
@@ -111,7 +156,8 @@ fn loads_references_from_binary_index_when_available() {
 
     let resources = load_resources_from_dir(&fixture_dir).unwrap();
 
+    assert!(matches!(resources.references, LoadedReferenceSource::Mapped(_)));
     assert_eq!(resources.references.len(), 2);
-    assert_eq!(resources.references[0].label, ReferenceLabel::Legit);
-    assert_eq!(resources.references[1].label, ReferenceLabel::Fraud);
+    assert_eq!(resources.references.label(0), Some(ReferenceLabel::Legit));
+    assert_eq!(resources.references.label(1), Some(ReferenceLabel::Fraud));
 }

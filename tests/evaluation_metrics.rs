@@ -1,7 +1,13 @@
-use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use rinha_de_backend_2026_fabio_rust::{
-    scoring::{evaluate_entries, load_evaluation_entries_from_file, EvaluationEntry, ScoringEngine},
+    resources::{LoadedReferenceSource, LoadedResources},
+    scoring::{
+        evaluate_entries, load_evaluation_entries_from_file, EvaluationEntry, ScoringEngine,
+    },
     types::{
         Customer, Merchant, Normalization, ReferenceLabel, ReferenceRecord, ScoreRequest, Terminal,
         Transaction,
@@ -76,7 +82,7 @@ fn load_evaluation_entries_from_file_reads_official_shape() {
 
 #[test]
 fn evaluate_entries_reports_accuracy_and_confusion_matrix() {
-    let resources = rinha_de_backend_2026_fabio_rust::resources::LoadedResources {
+    let resources = LoadedResources {
         normalization: Normalization {
             max_amount: 10_000.0,
             max_installments: 12.0,
@@ -89,48 +95,78 @@ fn evaluate_entries_reports_accuracy_and_confusion_matrix() {
         mcc_risk: [("5912".to_string(), 0.2), ("7801".to_string(), 0.9)]
             .into_iter()
             .collect(),
-        references: vec![
+        references: LoadedReferenceSource::Owned(vec![
             ReferenceRecord {
-                vector: [0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2, 0.01],
+                vector: [
+                    0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2,
+                    0.01,
+                ],
                 label: ReferenceLabel::Legit,
             },
             ReferenceRecord {
-                vector: [0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2, 0.01],
+                vector: [
+                    0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2,
+                    0.01,
+                ],
                 label: ReferenceLabel::Legit,
             },
             ReferenceRecord {
-                vector: [0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2, 0.01],
+                vector: [
+                    0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2,
+                    0.01,
+                ],
                 label: ReferenceLabel::Legit,
             },
             ReferenceRecord {
-                vector: [0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2, 0.01],
+                vector: [
+                    0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2,
+                    0.01,
+                ],
                 label: ReferenceLabel::Fraud,
             },
             ReferenceRecord {
-                vector: [0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2, 0.01],
+                vector: [
+                    0.01, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.2,
+                    0.01,
+                ],
                 label: ReferenceLabel::Fraud,
             },
             ReferenceRecord {
-                vector: [0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9, 0.01],
+                vector: [
+                    0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9,
+                    0.01,
+                ],
                 label: ReferenceLabel::Fraud,
             },
             ReferenceRecord {
-                vector: [0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9, 0.01],
+                vector: [
+                    0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9,
+                    0.01,
+                ],
                 label: ReferenceLabel::Fraud,
             },
             ReferenceRecord {
-                vector: [0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9, 0.01],
+                vector: [
+                    0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9,
+                    0.01,
+                ],
                 label: ReferenceLabel::Fraud,
             },
             ReferenceRecord {
-                vector: [0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9, 0.01],
+                vector: [
+                    0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9,
+                    0.01,
+                ],
                 label: ReferenceLabel::Legit,
             },
             ReferenceRecord {
-                vector: [0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9, 0.01],
+                vector: [
+                    0.50, 0.1, 0.5, 0.5, 0.2, -1.0, -1.0, 0.001, 0.05, 0.0, 1.0, 0.0, 0.9,
+                    0.01,
+                ],
                 label: ReferenceLabel::Legit,
             },
-        ],
+        ]),
     };
 
     let engine = ScoringEngine::new(resources);
