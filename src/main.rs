@@ -5,6 +5,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use rinha_de_backend_2026_fabio_rust::{
     app::build_app_with_engine,
+    config::server_address_from_env,
     resources::load_resources_from_dir,
     scoring::ScoringEngine,
 };
@@ -31,7 +32,7 @@ async fn main() {
         }
     };
 
-    let address = "0.0.0.0:9999".parse().unwrap();
+    let address = server_address_from_env().unwrap();
     Server::bind(&address)
         .serve(build_app_with_engine(engine).into_make_service())
         .await
